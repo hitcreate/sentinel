@@ -1,18 +1,45 @@
 # Sentinel
 
-**Is your server hackable?** Know your security grade in 30 seconds.
+**Security for apps built with AI.** Scan your Supabase database, web app, or server — A–F grade in 30 seconds.
 
-Sentinel checks 23 things that hackers look for on your server and gives you an A–F grade. Free, open source, nothing leaves your machine.
+53% of AI-generated code has security vulnerabilities. 83% of Supabase incidents are misconfigured RLS. Sentinel catches the mistakes Cursor, Bolt, Lovable, and Replit leave behind.
 
 ## Quick Start
 
 ```bash
+# Clone and scan any web app (auto-detects Supabase)
+git clone https://github.com/hitcreate/sentinel.git
+cd sentinel
+./sentinel scan https://myapp.vercel.app
+
+# Or scan your Linux server directly
 curl -sL sentinel.hitcreate.io/score.sh | bash
 ```
 
-That's it. One command, 30 seconds, your server's security grade.
+## Scan Types
 
-## What It Checks
+### Supabase Security Scan
+
+```bash
+./sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ...
+```
+
+| Check | Severity | What it finds |
+|---|---|---|
+| RLS enabled on all tables | Critical | Tables accessible to anyone with your anon key |
+| No overly permissive policies | High | Policies that allow reading all rows |
+| Anonymous write access blocked | Critical | Tables anyone can INSERT/UPDATE/DELETE |
+| No service_role key in frontend | Critical | The key that bypasses ALL security, exposed in JS |
+| Anon key + RLS protected | Critical | Anon key in frontend + disabled RLS = open database |
+| Auth signup restricted | Medium | Public registration on internal tools |
+| No public storage buckets | High | Files downloadable by anyone |
+| Realtime requires auth | Medium | Live data changes visible without login |
+
+### Linux Server Scan
+
+```bash
+curl -sL sentinel.hitcreate.io/score.sh | bash
+```
 
 | Category | Checks | What it looks for |
 |---|---|---|
@@ -24,48 +51,51 @@ That's it. One command, 30 seconds, your server's security grade.
 | System | 4 | Unattended upgrades, /tmp exec, ASLR, noexec mount |
 | Monitoring | 3 | File integrity (AIDE), fail2ban, persistent logging |
 
-## Grading
-
-| Grade | Score | Meaning |
-|---|---|---|
-| **A** | 90%+ (no critical fails) | Well-hardened. Keep it up. |
-| **B** | 80%+ | Good shape, minor improvements possible. |
-| **C** | 65%+ | Real risks present. Worth fixing soon. |
-| **D** | 50%+ | Serious issues. Attackers could likely get in. |
-| **F** | Below 50% | Critical problems. Likely vulnerable now. |
-
-## JSON Output
+## Output Modes
 
 ```bash
-curl -sL sentinel.hitcreate.io/score.sh | bash -s -- --json
+# Default: human-readable with pass/fail
+./sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ...
+
+# Explain what's wrong and how to fix it
+./sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ... --explain
+
+# Get only the fix commands (SQL for Supabase, shell for server)
+./sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ... --fix
+
+# Machine-readable JSON
+./sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ... --json
 ```
 
-Returns machine-readable JSON for automation and CI pipelines.
+## Grading
 
-## Trust & Transparency
+| Grade | Meaning |
+|---|---|
+| **A** | Well-secured. No critical issues. |
+| **B** | Good shape, minor improvements possible. |
+| **C** | Real risks present. Worth fixing soon. |
+| **D** | Serious issues. Data may be exposed. |
+| **F** | Critical problems. Database likely open to the world. |
 
-- **Read-only** — looks at settings, changes nothing
-- **Private** — zero network calls, no data sent anywhere
-- **No install** — runs once and exits, leaves nothing behind
-- **Open source** — read every line before you run it
+Service role key in frontend code = automatic F.
 
 ## Why This Exists
 
-We got hacked. Twice. A cryptocurrency miner ran silently on our server for five days. We thought we cleaned it up — they got back in through one misconfigured setting.
+We got hacked. Twice. Once through exposed Docker ports, once through an unpatched Next.js vulnerability. Both would have been caught by a 30-second scan.
 
-After the second hack, we wrote checks for every mistake that let it happen. Then we made them run in 30 seconds, because a security tool you don't use is worthless.
+Now we're building the security tool we wish existed when we shipped our first AI-built app.
 
-That script became Sentinel.
+## Coming Soon
 
-## Coming Soon: Sentinel Agent
-
-Continuous monitoring that watches your server 24/7 and alerts you on Telegram or Slack if your grade drops. Uses AI to explain findings in plain English.
+- **Web app scanner** — headers, exposed secrets, CORS, debug endpoints (any URL)
+- **GitHub Action** — security grade on every push
+- **Sentinel Agent** — continuous monitoring with Telegram/Slack alerts
 
 Star this repo to get notified.
 
 ## Built By
 
-[HitCreate](https://hitcreate.io) — a small Australian team that builds products with AI and runs our own servers.
+[HitCreate](https://hitcreate.io) — a small Australian team that builds products with AI.
 
 ## License
 
