@@ -1,0 +1,101 @@
+#!/bin/bash
+# Sentinel — Security for apps built with AI
+# https://sentinel.hitcreate.io
+#
+# Multi-surface security scanner:
+#   sentinel scan <url>              Auto-detect scan type
+#   sentinel scan --supabase <url>   Supabase RLS + API security
+#   sentinel scan --server           Linux VPS security (23 checks)
+#   sentinel --help                  Show help
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION="2.0.0"
+
+show_help() {
+  echo "Sentinel v$VERSION — Security for apps built with AI"
+  echo "https://sentinel.hitcreate.io"
+  echo ""
+  echo "Usage:"
+  echo "  sentinel scan <url>                  Scan a web app (auto-detects Supabase)"
+  echo "  sentinel scan --supabase <url>       Supabase security scan (RLS, keys, API)"
+  echo "  sentinel scan --server               Linux server security scan (23 checks)"
+  echo ""
+  echo "Options:"
+  echo "  --explain      Show what's wrong and how to fix it"
+  echo "  --fix          Output only the fix commands"
+  echo "  --json         Machine-readable JSON output"
+  echo "  --anon-key KEY Provide Supabase anon key directly"
+  echo "  --help         Show this help"
+  echo ""
+  echo "Examples:"
+  echo "  sentinel scan https://myapp.vercel.app"
+  echo "  sentinel scan --supabase https://xyz.supabase.co --anon-key eyJ..."
+  echo "  sentinel scan --server"
+  echo ""
+  echo "Built by HitCreate · Born from getting hacked twice."
+}
+
+# No args
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+
+# Parse command
+COMMAND="${1:-}"
+shift
+
+case "$COMMAND" in
+  scan)
+    MODE=""
+    ARGS=()
+
+    # Parse scan subcommand args
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --supabase) MODE="supabase"; shift ;;
+        --server)   MODE="server"; shift ;;
+        --help)     show_help; exit 0 ;;
+        *)          ARGS+=("$1"); shift ;;
+      esac
+    done
+
+    # Auto-detect mode if not specified
+    if [[ -z "$MODE" ]]; then
+      # If a URL is provided, default to supabase scan (auto-detect)
+      # If no URL, default to server scan
+      if [[ ${#ARGS[@]} -gt 0 ]]; then
+        MODE="supabase"
+      else
+        MODE="server"
+      fi
+    fi
+
+    case "$MODE" in
+      supabase)
+        exec bash "$SCRIPT_DIR/sentinel-supabase.sh" "${ARGS[@]}"
+        ;;
+      server)
+        exec bash "$SCRIPT_DIR/score.sh" "${ARGS[@]}"
+        ;;
+      *)
+        echo "Unknown scan mode: $MODE"
+        show_help
+        exit 1
+        ;;
+    esac
+    ;;
+  --help|-h|help)
+    show_help
+    ;;
+  --version|-v)
+    echo "Sentinel v$VERSION"
+    ;;
+  *)
+    echo "Unknown command: $COMMAND"
+    echo "Run 'sentinel --help' for usage."
+    exit 1
+    ;;
+esac
