@@ -1,0 +1,132 @@
+name: 'Sentinel Security Scan'
+description: 'Security for apps built with AI. Scan your web app, Supabase database, or server.'
+branding:
+  icon: 'shield'
+  color: 'yellow'
+
+inputs:
+  url:
+    description: 'URL to scan (web app or Supabase project)'
+    required: false
+  scan-type:
+    description: 'Scan type: web, supabase, server (default: web)'
+    required: false
+    default: 'web'
+  anon-key:
+    description: 'Supabase anon key (required for --supabase scan)'
+    required: false
+  supabase-url:
+    description: 'Supabase project URL (if different from app URL)'
+    required: false
+  min-grade:
+    description: 'Minimum passing grade: A, B, C, D (default: C)'
+    required: false
+    default: 'C'
+  explain:
+    description: 'Show explanations for failures (true/false)'
+    required: false
+    default: 'true'
+
+outputs:
+  grade:
+    description: 'Security grade (A-F)'
+    value: ${{ steps.scan.outputs.grade }}
+  score:
+    description: 'Security score (0-100)'
+    value: ${{ steps.scan.outputs.score }}
+  pass:
+    description: 'Number of checks passed'
+    value: ${{ steps.scan.outputs.pass }}
+  fail:
+    description: 'Number of critical/high failures'
+    value: ${{ steps.scan.outputs.fail }}
+  json:
+    description: 'Full scan results as JSON'
+    value: ${{ steps.scan.outputs.json }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Sentinel scan
+      id: scan
+      shell: bash
+      run: |
+        # Clone sentinel
+        git clone --depth 1 https://github.com/hitcreate/sentinel.git /tmp/sentinel 2>/dev/null
+
+        SCAN_CMD="/tmp/sentinel/sentinel-web.sh"
+        SCAN_ARGS=""
+
+        case "${{ inputs.scan-type }}" in
+          supabase)
+            SCAN_CMD="/tmp/sentinel/sentinel-supabase.sh"
+            if [ -n "${{ inputs.supabase-url }}" ]; then
+              SCAN_ARGS="--url ${{ inputs.supabase-url }}"
+            fi
+            if [ -n "${{ inputs.anon-key }}" ]; then
+              SCAN_ARGS="$SCAN_ARGS --anon-key ${{ inputs.anon-key }}"
+            fi
+            if [ -n "${{ inputs.url }}" ] && [ -z "${{ inputs.supabase-url }}" ]; then
+              SCAN_ARGS="${{ inputs.url }} $SCAN_ARGS"
+            fi
+            ;;
+          server)
+            SCAN_CMD="/tmp/sentinel/score.sh"
+            ;;
+          web|*)
+            if [ -n "${{ inputs.url }}" ]; then
+              SCAN_ARGS="${{ inputs.url }}"
+            else
+              echo "::error::URL is required for web scan. Set the 'url' input."
+              exit 1
+            fi
+            ;;
+        esac
+
+        # Run scan with JSON output
+        JSON_RESULT=$(bash $SCAN_CMD $SCAN_ARGS --json 2>/dev/null || echo '{"grade":"?","score":0,"pass":0,"fail":0}')
+
+        # Extract values
+        GRADE=$(echo "$JSON_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('grade','?'))" 2>/dev/null || echo "?")
+        SCORE=$(echo "$JSON_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('score',0))" 2>/dev/null || echo "0")
+        PASS_COUNT=$(echo "$JSON_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('pass',0))" 2>/dev/null || echo "0")
+        FAIL_COUNT=$(echo "$JSON_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('fail',0))" 2>/dev/null || echo "0")
+        TOTAL=$(echo "$JSON_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")
+
+        # Set outputs
+        echo "grade=$GRADE" >> $GITHUB_OUTPUT
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+        echo "pass=$PASS_COUNT" >> $GITHUB_OUTPUT
+        echo "fail=$FAIL_COUNT" >> $GITHUB_OUTPUT
+        echo "json<<SENTINEL_EOF" >> $GITHUB_OUTPUT
+        echo "$JSON_RESULT" >> $GITHUB_OUTPUT
+        echo "SENTINEL_EOF" >> $GITHUB_OUTPUT
+
+        # Print human-readable output
+        echo ""
+        echo "🛡️ Sentinel Security Scan"
+        echo "========================"
+        echo "Grade: $GRADE ($SCORE%)"
+        echo "Passed: $PASS_COUNT / $TOTAL"
+        echo "Critical/High failures: $FAIL_COUNT"
+        echo ""
+
+        # Run explain mode if requested
+        if [ "${{ inputs.explain }}" = "true" ] && [ "$FAIL_COUNT" -gt 0 ]; then
+          echo "--- Explanations ---"
+          bash $SCAN_CMD $SCAN_ARGS --explain 2>/dev/null | grep -A3 "WHAT:\|WHY:\|FIX:" || true
+          echo ""
+        fi
+
+        # Check minimum grade
+        MIN_GRADE="${{ inputs.min-grade }}"
+        GRADE_ORDER="ABCDF"
+        GRADE_POS=$(echo "$GRADE_ORDER" | grep -bo "$GRADE" | cut -d: -f1 || echo 99)
+        MIN_POS=$(echo "$GRADE_ORDER" | grep -bo "$MIN_GRADE" | cut -d: -f1 || echo 99)
+
+        if [ "$GRADE_POS" -gt "$MIN_POS" ]; then
+          echo "::error::Security grade $GRADE is below minimum $MIN_GRADE. Fix security issues before merging."
+          exit 1
+        fi
+
+        echo "✅ Security grade $GRADE meets minimum requirement ($MIN_GRADE)"

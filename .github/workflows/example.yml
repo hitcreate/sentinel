@@ -1,0 +1,27 @@
+# Example: Add this to your repo's .github/workflows/security.yml
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sentinel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sentinel Security Scan
+        uses: hitcreate/sentinel@main
+        with:
+          url: 'https://your-app.vercel.app'
+          min-grade: 'C'   # Fail the build if grade drops below C
+
+      # Supabase scan example:
+      # - name: Sentinel Supabase Scan
+      #   uses: hitcreate/sentinel@main
+      #   with:
+      #     scan-type: 'supabase'
+      #     url: 'https://your-app.vercel.app'
+      #     anon-key: ${{ secrets.SUPABASE_ANON_KEY }}
+      #     min-grade: 'C'

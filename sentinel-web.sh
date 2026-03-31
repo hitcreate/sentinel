@@ -182,24 +182,71 @@ check_debug_headers() {
 # ── API Key Exposure ──
 
 check_api_keys_in_source() {
-  # Scan page source for common API key patterns that should NOT be in frontend
-  # Exclude Supabase anon keys (those are intentionally public)
+  # Scan page source + JS bundles for secret API key patterns
+  # 15 patterns covering the most commonly leaked keys
   local found=false
+  local scan_text="$PAGE_SOURCE"
 
-  # AWS keys
-  echo "$PAGE_SOURCE" | grep -qP 'AKIA[0-9A-Z]{16}' && found=true
+  # Also grab inline JS and first few JS bundle contents
+  local js_urls
+  js_urls=$(echo "$PAGE_SOURCE" | grep -oP 'src="([^"]*\.js)"' | grep -oP '"[^"]*"' | tr -d '"' | head -5)
+  for js_url in $js_urls; do
+    case "$js_url" in
+      http*) ;;
+      //*) js_url="https:$js_url" ;;
+      /*) js_url="${TARGET_URL}$js_url" ;;
+      *) js_url="${TARGET_URL}/$js_url" ;;
+    esac
+    local js_content
+    js_content=$(curl -sL --max-time 5 "$js_url" 2>/dev/null | head -500)
+    scan_text="$scan_text"$'\n'"$js_content"
+  done
 
-  # Stripe secret key (sk_live)
-  echo "$PAGE_SOURCE" | grep -qP 'sk_live_[a-zA-Z0-9]{20,}' && found=true
+  # 1. AWS Access Key
+  echo "$scan_text" | grep -qP 'AKIA[0-9A-Z]{16}' && found=true
 
-  # Private keys / secrets in common patterns
-  echo "$PAGE_SOURCE" | grep -qP '(SECRET|PRIVATE|MASTER)_KEY\s*[:=]\s*["\x27][a-zA-Z0-9_-]{20,}' && found=true
+  # 2. Stripe secret key
+  echo "$scan_text" | grep -qP 'sk_live_[a-zA-Z0-9]{20,}' && found=true
 
-  # OpenAI / Anthropic keys
-  echo "$PAGE_SOURCE" | grep -qP 'sk-[a-zA-Z0-9]{40,}' && found=true
+  # 3. Stripe restricted key
+  echo "$scan_text" | grep -qP 'rk_live_[a-zA-Z0-9]{20,}' && found=true
 
-  # Google API keys (not always secret, but flag)
-  # Skip this — too many false positives
+  # 4. OpenAI key
+  echo "$scan_text" | grep -qP 'sk-[a-zA-Z0-9]{20}T3BlbkFJ[a-zA-Z0-9]{20}' && found=true
+
+  # 5. Anthropic key
+  echo "$scan_text" | grep -qP 'sk-ant-[a-zA-Z0-9_-]{40,}' && found=true
+
+  # 6. GitHub PAT (classic)
+  echo "$scan_text" | grep -qP 'ghp_[a-zA-Z0-9]{36}' && found=true
+
+  # 7. GitHub PAT (fine-grained)
+  echo "$scan_text" | grep -qP 'github_pat_[a-zA-Z0-9_]{82}' && found=true
+
+  # 8. Supabase service_role key (JWT with service_role claim)
+  # Handled by Supabase scanner, but check here too
+  echo "$scan_text" | grep -qP '"role"\s*:\s*"service_role"' && found=true
+
+  # 9. Twilio
+  echo "$scan_text" | grep -qP 'SK[a-f0-9]{32}' && found=true
+
+  # 10. SendGrid
+  echo "$scan_text" | grep -qP 'SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}' && found=true
+
+  # 11. Mailgun
+  echo "$scan_text" | grep -qP 'key-[a-f0-9]{32}' && found=true
+
+  # 12. Database connection strings
+  echo "$scan_text" | grep -qP '(postgres|mysql|mongodb)://[a-zA-Z0-9_]+:[^@\s]{8,}@' && found=true
+
+  # 13. Private key blocks
+  echo "$scan_text" | grep -qP 'BEGIN (RSA |EC |DSA )?PRIVATE KEY' && found=true
+
+  # 14. Generic SECRET/PRIVATE patterns with values
+  echo "$scan_text" | grep -qP '(SECRET|PRIVATE|MASTER)_KEY\s*[:=]\s*["\x27][a-zA-Z0-9_-]{20,}' && found=true
+
+  # 15. Firebase server key
+  echo "$scan_text" | grep -qP 'AAAA[a-zA-Z0-9_-]{7}:[a-zA-Z0-9_-]{140}' && found=true
 
   ! $found
 }
@@ -319,9 +366,9 @@ load_explanations() {
     "Ensure NODE_ENV=production and debug flags are off in your deployment."
 
   explain "W13" \
-    "API keys found in page source" \
-    "Secret API keys (AWS, Stripe sk_live, OpenAI) are embedded in your frontend JavaScript. Anyone can view-source and steal them. Stolen keys are exploited within 5 minutes of exposure." \
-    "Move secret keys to server-side code. Use environment variables on the server, not in the browser."
+    "API keys found in page source or JS bundles" \
+    "Secret API keys are embedded in your frontend JavaScript. Sentinel checks 15 patterns: AWS (AKIA), Stripe (sk_live), OpenAI (sk-), Anthropic (sk-ant-), GitHub PATs (ghp_), Supabase service_role, Twilio, SendGrid, Mailgun, database URIs, private key blocks, Firebase, and generic secret patterns. Stolen keys are exploited within 5 minutes of GitHub exposure." \
+    "Move ALL secret keys to server-side code (API routes, Edge Functions, environment variables). Never prefix secrets with NEXT_PUBLIC_ or VITE_."
 
   explain "W14" \
     "Suspicious NEXT_PUBLIC_ variables detected" \
