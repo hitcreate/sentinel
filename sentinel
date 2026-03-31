@@ -18,8 +18,9 @@ show_help() {
   echo "https://sentinel.hitcreate.io"
   echo ""
   echo "Usage:"
-  echo "  sentinel scan <url>                  Scan a web app (auto-detects Supabase)"
+  echo "  sentinel scan <url>                  Scan a web app (headers, secrets, CORS)"
   echo "  sentinel scan --supabase <url>       Supabase security scan (RLS, keys, API)"
+  echo "  sentinel scan --web <url>            Web app scan (headers, secrets, CORS)"
   echo "  sentinel scan --server               Linux server security scan (23 checks)"
   echo ""
   echo "Options:"
@@ -56,6 +57,7 @@ case "$COMMAND" in
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --supabase) MODE="supabase"; shift ;;
+        --web)      MODE="web"; shift ;;
         --server)   MODE="server"; shift ;;
         --help)     show_help; exit 0 ;;
         *)          ARGS+=("$1"); shift ;;
@@ -64,11 +66,11 @@ case "$COMMAND" in
 
     # Auto-detect mode if not specified
     if [[ -z "$MODE" ]]; then
-      # If a URL is provided, default to supabase scan (auto-detect)
-      # If no URL, default to server scan
       if [[ ${#ARGS[@]} -gt 0 ]]; then
-        MODE="supabase"
+        # URL provided — run web scan (includes Supabase auto-detect hint)
+        MODE="web"
       else
+        # No URL — must be server scan
         MODE="server"
       fi
     fi
@@ -76,6 +78,9 @@ case "$COMMAND" in
     case "$MODE" in
       supabase)
         exec bash "$SCRIPT_DIR/sentinel-supabase.sh" "${ARGS[@]}"
+        ;;
+      web)
+        exec bash "$SCRIPT_DIR/sentinel-web.sh" "${ARGS[@]}"
         ;;
       server)
         exec bash "$SCRIPT_DIR/score.sh" "${ARGS[@]}"
